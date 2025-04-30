@@ -6,84 +6,183 @@ import os
 import platform
 import webbrowser
 import urllib.parse
-# import threading # Đã bỏ threading
-# import time      # Đã bỏ time
+import threading
+import time
+import fnmatch
 
 # --- Cài đặt Giao diện ---
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
-# --- Ánh xạ tên gọi thân thiện sang lệnh thực thi ---
-# (Giữ nguyên APP_MAPPINGS từ V4.6.1)
+# --- Ánh xạ và Alias ---
+# (Giữ nguyên APP_MAPPINGS, ALIAS_MAP, FILE_TYPE_EXTENSIONS, WEBSITE_ALIASES)
 APP_MAPPINGS = { "notepad": {"open_cmd": "notepad.exe", "process_name": "notepad.exe"}, "edge": {"open_cmd": "start msedge", "process_name": "msedge.exe"}, "chrome": {"open_cmd": "start chrome", "process_name": "chrome.exe"}, "firefox": {"open_cmd": "start firefox", "process_name": "firefox.exe"}, "cmd": {"open_cmd": "start cmd.exe" if platform.system() == "Windows" else "gnome-terminal", "process_name": "cmd.exe"}, "terminal": {"open_cmd": "start wt.exe" if platform.system() == "Windows" else "gnome-terminal", "process_name": "WindowsTerminal.exe" if platform.system() == "Windows" else "gnome-terminal-"}, "calculator": {"open_cmd": "calc.exe", "process_name": "CalculatorApp.exe"}, "explorer": {"open_cmd": "explorer.exe", "process_name": "explorer.exe"}, "google": {"open_cmd": "start chrome https://www.google.com", "process_name": "chrome.exe"}, "youtube": {"open_cmd": "start chrome https://www.youtube.com", "process_name": "chrome.exe"}, "facebook": {"open_cmd": "start chrome https://www.facebook.com", "process_name": "chrome.exe"}, "gemini": {"open_cmd": "start chrome https://gemini.google.com/app", "process_name": "chrome.exe"}, "chatgpt": {"open_cmd": "start chrome https://chatgpt.com/", "process_name": "chrome.exe"}, }
-
-# (Giữ nguyên ALIAS_MAP, WEBSITE_ALIASES từ V4.6.1)
 ALIAS_MAP = { "note": "notepad", "me": "edge", "gg": "google", "ytb": "youtube", "yt": "youtube", "cal": "calculator", "exp": "explorer", "fb": "facebook", "face": "facebook", "gem": "gemini", "gemini": "gemini", "gpt": "chatgpt", }
+FILE_TYPE_EXTENSIONS = { "excel": (".xlsx", ".xls", ".xlsm", ".xlsb", ".csv"), "xls": (".xlsx", ".xls", ".xlsm", ".xlsb", ".csv"), "xlsx": (".xlsx", ".xls", ".xlsm", ".xlsb", ".csv"), "word": (".docx", ".doc", ".rtf"), "doc": (".docx", ".doc", ".rtf"), "docx": (".docx", ".doc", ".rtf"), "powerpoint": (".pptx", ".ppt"), "ppt": (".pptx", ".ppt"), "pptx": (".pptx", ".ppt"), "pdf": (".pdf",), "ảnh": (".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp", ".heic", ".jfif"), "anh": (".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp", ".heic", ".jfif"), "jpg": (".jpg", ".jpeg", ".jfif"), "png": (".png",), "video": (".mp4", ".avi", ".mov", ".wmv", ".mkv", ".flv", ".webm"), "mp4": (".mp4", ".mov", ".avi", ".wmv", ".mkv"), "nhạc": (".mp3", ".wav", ".aac", ".flac", ".m4a", ".ogg"), "nhac": (".mp3", ".wav", ".aac", ".flac", ".m4a", ".ogg"), "mp3": (".mp3", ".m4a", ".aac"), "văn bản": (".txt", ".log", ".md"), "van ban": (".txt", ".log", ".md"), "text": (".txt", ".log", ".md"), "txt": (".txt",), "nén": (".zip", ".rar", ".7z", ".tar", ".gz"), "nen": (".zip", ".rar", ".7z", ".tar", ".gz"), "zip": (".zip",), "rar": (".rar",), }
 WEBSITE_ALIASES = {"google", "youtube", "facebook", "gg", "ytb", "yt", "fb", "face", "gem", "gemini", "gpt", "chatgpt"}
+
+# --- Định nghĩa các bộ từ khóa ---
 KW_BASE_OPEN = ("mở", "khởi động"); KW_BASE_CLOSE = ("đóng", "tắt"); KW_BASE_WEB_SEARCH = ("truy cập", "vào web", "mở web", "mở trang", "tìm kiếm", "search", "tìm", "vào", "tìm nhạc")
-KW_SPACED_OPEN = tuple(kw + " " for kw in KW_BASE_OPEN); KW_SPACED_CLOSE = tuple(kw + " " for kw in KW_BASE_CLOSE); KW_SPACED_WEB_SEARCH = tuple(kw + " " for kw in KW_BASE_WEB_SEARCH)
-PREPOSITIONS = (" trong ", " bằng ", " trên ")
+KW_BASE_FIND_FILE = ("tìm file", "kiếm file", "tìm tập tin", "kiếm tập tin"); KW_BASE_SHOW_MORE = ("hiển thị thêm", "xem thêm", "thêm kết quả", "show more", "thêm")
+KW_SPACED_OPEN = tuple(kw + " " for kw in KW_BASE_OPEN); KW_SPACED_CLOSE = tuple(kw + " " for kw in KW_BASE_CLOSE); KW_SPACED_WEB_SEARCH = tuple(kw + " " for kw in KW_BASE_WEB_SEARCH); KW_SPACED_FIND_FILE = tuple(kw + " " for kw in KW_BASE_FIND_FILE)
+# === V6.6: Giới từ chỉ vị trí (sắp xếp từ dài đến ngắn) ===
+LOCATION_PREPOSITIONS = (" trong thư mục ", " tại thư mục ", " ở thư mục ", " trên ổ ", " trong ổ ", " tại ổ ", " ở ổ ", " trên ", " trong ", " ở ", " tại ") # Ưu tiên các cụm dài hơn
+BROWSER_PREPOSITIONS = (" trong ", " bằng ", " trên ") # Giữ nguyên cho browser
+LOCATION_MAP = {}
 
 class ChatApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Trợ lý AI Desktop - V5.4.1") # Đổi tên version
-        # === V5.4.1: Bỏ các thuộc tính không cần thiết ===
-        # self.web_thread = None
+        self.title("Trợ lý AI Desktop - V6.6 (Adv Location Find)") # Đổi tên version
+        self.last_search_results = [] ; self.last_search_display_index = 0; self.display_limit = 15
+        self.web_thread = None; self.find_file_thread = None
+        self._initialize_location_map()
         # ... (rest of __init__ GUI setup) ...
         self.geometry("750x600"); self._current_theme = ctk.get_appearance_mode(); self.message_history = []; self.history_index = 0
         self.grid_columnconfigure(0, weight=1); self.grid_rowconfigure(0, weight=1); self.grid_rowconfigure(1, weight=0)
         self.chat_display_frame = ctk.CTkScrollableFrame(self, label_text="Lịch sử Chat", label_font=("Segoe UI", 11, "italic"), fg_color="transparent")
-        self.chat_display_frame.grid(row=0, column=0, padx=10, pady=(0, 5), sticky="nsew"); self.chat_display_frame.grid_columnconfigure(0, weight=1)
+        self.chat_display_frame.grid(row=0, column=0, padx=15, pady=(5, 10), sticky="nsew"); self.chat_display_frame.grid_columnconfigure(0, weight=1)
         self.bottom_frame = ctk.CTkFrame(self, height=60, corner_radius=0, fg_color="transparent")
-        self.bottom_frame.grid(row=1, column=0, padx=0, pady=(5, 10), sticky="ew"); self.bottom_frame.grid_columnconfigure(0, weight=0); self.bottom_frame.grid_columnconfigure(1, weight=1); self.bottom_frame.grid_columnconfigure(2, weight=0)
+        self.bottom_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="ew"); self.bottom_frame.grid_columnconfigure(0, weight=0); self.bottom_frame.grid_columnconfigure(1, weight=1); self.bottom_frame.grid_columnconfigure(2, weight=0); self.bottom_frame.grid_columnconfigure(3, weight=0)
         self.theme_button = ctk.CTkButton(self.bottom_frame, text="💡" if self._current_theme == "Dark" else "🌙", width=40, command=self.toggle_theme, font=("Segoe UI Emoji", 16))
         self.theme_button.grid(row=0, column=0, padx=(10, 5), pady=10)
         self.entry_message = ctk.CTkEntry(self.bottom_frame, placeholder_text="Nhập lệnh của bạn...", font=("Segoe UI", 14))
         self.entry_message.grid(row=0, column=1, padx=5, pady=10, sticky="ew"); self.entry_message.bind("<Return>", self.send_message_event); self.entry_message.bind("<Up>", self.recall_previous_message); self.entry_message.bind("<Down>", self.recall_next_message); self.entry_message.bind("<Button-3>", self.paste_on_right_click)
-        self.send_button = ctk.CTkButton(self.bottom_frame, text="Gửi", width=80, command=self.send_message_event, font=("Segoe UI", 14, "bold"))
-        self.send_button.grid(row=0, column=2, padx=(5, 10), pady=10, sticky="e")
-        self.display_message("Bot: Đã cập nhật V5.4.1", sender="Bot") # Đổi message
-        # === V5.4.1: Bỏ protocol ===
-        # self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.send_button = ctk.CTkButton(self.bottom_frame, text="Gửi", width=70, command=self.send_message_event, font=("Segoe UI", 14, "bold"))
+        self.send_button.grid(row=0, column=2, padx=5, pady=10)
+        self.show_more_button = ctk.CTkButton(self.bottom_frame, text="Xem thêm", width=90, command=self._on_show_more_button_click, font=("Segoe UI", 14)); self.show_more_button_grid_info = {"row": 0, "column": 3, "padx": (0, 10), "pady": 10, "sticky": "e"}
+        self.show_more_button.grid_remove()
+        self.display_message("Bot: Đã cập nhật V6.6 - Cải thiện tìm file theo vị trí.", sender="Bot") # Đổi message
+
+    # === V6.6: Hàm khởi tạo LOCATION_MAP ===
+    def _initialize_location_map(self):
+        global LOCATION_MAP
+        home_dir = os.path.expanduser("~")
+        # Ưu tiên các đường dẫn cụ thể hơn trước
+        location_map_temp = {
+            # Các thư mục người dùng chuẩn
+            "desktop": os.path.join(home_dir, "Desktop"), "màn hình nền": os.path.join(home_dir, "Desktop"), "màn hình chính": os.path.join(home_dir, "Desktop"),
+            "documents": os.path.join(home_dir, "Documents"), "tài liệu": os.path.join(home_dir, "Documents"), "document": os.path.join(home_dir, "Documents"),
+            "downloads": os.path.join(home_dir, "Downloads"), "tải về": os.path.join(home_dir, "Downloads"), "download": os.path.join(home_dir, "Downloads"),
+            "pictures": os.path.join(home_dir, "Pictures"), "ảnh": os.path.join(home_dir, "Pictures"), "anh": os.path.join(home_dir, "Pictures"),
+            "music": os.path.join(home_dir, "Music"), "nhạc": os.path.join(home_dir, "Music"), "nhac": os.path.join(home_dir, "Music"),
+            "videos": os.path.join(home_dir, "Videos"), "video": os.path.join(home_dir, "Videos"),
+            # Các ổ đĩa (Thêm các ổ đĩa bạn có)
+            "ổ c": "C:\\", "c": "C:\\", "c:": "C:\\",
+            "ổ d": "D:\\", "d": "D:\\", "d:": "D:\\",
+            "ổ e": "E:\\", "e": "E:\\", "e:": "E:\\",
+            "ổ f": "F:\\", "f": "F:\\", "f:": "F:\\",
+        }
+        valid_map = {}
+        # Tạo list các key theo độ dài giảm dần để ưu tiên khớp dài hơn trước ("ổ c" trước "c")
+        sorted_keys = sorted(location_map_temp.keys(), key=len, reverse=True)
+        temp_valid_map = {}
+        for key in sorted_keys:
+             path = location_map_temp[key]
+             drive, _ = os.path.splitdrive(path); is_drive = key.startswith("ổ ") or len(key) == 1 or key.endswith(":")
+             if is_drive:
+                 if platform.system() == "Windows":
+                      if os.path.exists(drive + os.sep): temp_valid_map[key] = path # Dùng os.sep cho chắc
+                 else: # Linux/Mac
+                      if os.path.exists(path): temp_valid_map[key] = path
+             elif os.path.isdir(path): temp_valid_map[key] = path
+        LOCATION_MAP = temp_valid_map # Gán vào biến global
+        print(f"Location Map Initialized: {LOCATION_MAP}")
 
 
-    # --- HÀM XỬ LÝ LỆNH CHÍNH (V5.4.1 - Bỏ threading cho web) ---
+    # === V6.2.2: Hàm wrapper cho nút Xem thêm ===
+    def _on_show_more_button_click(self):
+        print("Show More button clicked."); result_string, more_available = self._handle_show_more_results();
+        if result_string: self.display_message(result_string, sender="Bot")
+        if more_available: self.show_more_button.grid(**self.show_more_button_grid_info); self.show_more_button.configure(state="normal")
+        else: self.show_more_button.grid_remove()
+
+    # --- HÀM XỬ LÝ LỆNH CHÍNH (V6.6 - Cập nhật nhánh tìm file) ---
     def process_command(self, command):
-        """Phân tích và thực thi lệnh của người dùng."""
-        command_lower = command.lower()
-        response = f"Xin lỗi, tôi chưa hiểu lệnh: '{command}'"
-        executed = False
-
-        # --- Helper ---
+        command_lower = command.lower(); response = f"Xin lỗi, tôi chưa hiểu lệnh: '{command}'"; executed = False
         def get_target_from_command(cmd_lower_full, kw_spaced_tuple):
             for kw in kw_spaced_tuple:
                 if cmd_lower_full.startswith(kw): return command[len(kw):].strip()
             return None
 
         # 1. Lệnh đơn
-        if command_lower in KW_BASE_OPEN: response = "Bạn muốn mở ứng dụng/web nào?"; executed = True
+        is_show_more_command = command_lower in KW_BASE_SHOW_MORE
+        if is_show_more_command: response_tuple = self._handle_show_more_results(); response = response_tuple[0]; executed = True # Chỉ lấy string
+        elif command_lower in KW_BASE_OPEN: response = "Bạn muốn mở ứng dụng/web nào?"; executed = True
         elif command_lower in KW_BASE_CLOSE: response = "Bạn muốn đóng ứng dụng nào?"; executed = True
         elif command_lower in KW_BASE_WEB_SEARCH:
             if command_lower == "tìm nhạc": response = "Bạn muốn tìm bài nhạc nào?"
             else: response = "Bạn muốn truy cập web nào hoặc tìm kiếm gì?"
             executed = True
+        elif command_lower in KW_BASE_FIND_FILE: response = "Bạn muốn tìm file tên gì?"; executed = True
 
-        # Xử lý lệnh có target
-        if not executed:
-            # 2. Lệnh Đóng
+        if not executed and not is_show_more_command: self.show_more_button.grid_remove(); self.last_search_results = []; self.last_search_display_index = 0
+
+        if not executed: # 2. Lệnh Đóng
             target_close = get_target_from_command(command_lower, KW_SPACED_CLOSE)
             if target_close is not None: executed = True; response = self._handle_close_app(target_close)
 
-        if not executed:
-            # 3. Lệnh Tìm Nhạc (Dùng lại _handle_open_website)
+        if not executed: # === 3. Lệnh TÌM FILE (V6.6 - Xử lý location nâng cao) ===
+            file_target_full = get_target_from_command(command_lower, KW_SPACED_FIND_FILE)
+            if file_target_full is not None:
+                executed = True
+                if not file_target_full: response = "Bạn muốn tìm file tên gì?"
+                else:
+                    pattern = file_target_full
+                    search_location_paths = None # Mặc định tìm ở default
+                    location_name_found = None # Tên vị trí người dùng nhập
+
+                    # --- Tách pattern và location dựa trên giới từ ---
+                    # Ưu tiên giới từ dài hơn và vị trí cuối cùng
+                    parsed = False
+                    for prep in LOCATION_PREPOSITIONS: # Đã sắp xếp từ dài đến ngắn
+                        prep_lower = prep.lower()
+                        last_pos = file_target_full.lower().rfind(prep_lower)
+                        if last_pos != -1:
+                            potential_pattern = file_target_full[:last_pos].strip()
+                            potential_location_str = file_target_full[last_pos + len(prep):].strip() # Lấy đúng độ dài prep gốc
+                            print(f"Found preposition '{prep}'. Pattern='{potential_pattern}', Loc Str='{potential_location_str}'")
+
+                            # --- Gọi hàm phân tích vị trí phức tạp ---
+                            parsed_path = self._parse_complex_location(potential_location_str)
+
+                            if parsed_path: # Nếu phân tích thành công và path tồn tại
+                                pattern = potential_pattern # Cập nhật pattern
+                                search_location_paths = [parsed_path] # Lấy đường dẫn
+                                location_name_found = potential_location_str # Lưu tên vị trí để hiển thị
+                                print(f"Advanced location parsed: '{potential_location_str}' -> '{search_location_paths[0]}'")
+                                parsed = True
+                                break # Dừng khi tìm thấy giới từ và vị trí hợp lệ đầu tiên (từ cuối lên)
+                            else:
+                                 print(f"Could not resolve complex location: '{potential_location_str}'")
+                                 # Không break, thử giới từ ngắn hơn xem có khớp trực tiếp không
+
+                    # --- Nếu không parse được vị trí phức tạp, quay lại kiểm tra map đơn giản ---
+                    # (Điều này ít khi cần nếu _parse_complex_location đã bao gồm check map đơn giản)
+                    # if not parsed:
+                    #      # Check map đơn giản ở đây nếu cần thiết (logic cũ)
+                    #      pass
+
+                    # === Chạy tìm kiếm trong luồng riêng ===
+                    if hasattr(self, 'find_file_thread') and self.find_file_thread and self.find_file_thread.is_alive():
+                         response = "Bot: Đang bận tìm kiếm file trước đó, vui lòng đợi..."
+                    else:
+                         # Chỉ bắt đầu tìm nếu pattern không rỗng sau khi tách
+                         if pattern:
+                             self.display_message("Bot: Đang tìm kiếm file, vui lòng đợi...", sender="Bot")
+                             self.find_file_thread = threading.Thread(target=self._find_file_thread, args=(pattern, search_location_paths, location_name_found), daemon=True)
+                             self.find_file_thread.start()
+                             response = None
+                         else: # Pattern rỗng sau khi tách (ví dụ: "tìm file trong ổ D")
+                              response = "Vui lòng cung cấp tên file hoặc mẫu cần tìm."
+
+        # === Các lệnh còn lại giữ nguyên logic ===
+        # ... (Các khối Tìm nhạc, Web/Search, Mở giữ nguyên) ...
+        if not executed: # 4. Tìm Nhạc
             song_target_full = get_target_from_command(command_lower, ("tìm nhạc ",))
             if song_target_full is not None:
-                executed = True
-                song_title = song_target_full; browser_key = None; search_on_google = False; browser_specified = False
-                # Tách browser (nếu có)
-                temp_target = song_target_full
-                for prep in PREPOSITIONS:
+                executed = True; song_title = song_target_full; browser_key = None; search_on_google = False; browser_specified = False; temp_target = song_target_full
+                for prep in BROWSER_PREPOSITIONS: # Dùng PREPOSITIONS cũ cho browser
                     if prep in song_target_full.lower():
                         parts = song_target_full.rsplit(prep, 1);
                         if len(parts) == 2: browser_specified = True; target_part, browser_part = parts; potential_browser_key = browser_part.strip().lower(); temp_target = target_part.strip(); canonical_browser_key = ALIAS_MAP.get(potential_browser_key, potential_browser_key);
@@ -91,7 +190,6 @@ class ChatApp(ctk.CTk):
                         if canonical_browser_key in APP_MAPPINGS: browser_key = canonical_browser_key;
                         break
                 song_title = temp_target
-                # Check explicit google request
                 if not search_on_google:
                     if " trên google" in song_title.lower(): search_on_google = True; song_title = song_title.lower().replace(" trên google", "").strip()
                     elif song_title.lower().endswith(" google"): search_on_google = True; song_title = song_title.rsplit(' ', 1)[0].strip()
@@ -101,35 +199,32 @@ class ChatApp(ctk.CTk):
                     if search_on_google:
                         try: search_query = urllib.parse.quote_plus(song_title); final_url = f"https://www.google.com/search?q={search_query}"
                         except Exception as e: response = f"Lỗi tạo URL Google: {e}"; final_url=None
-                    else: # Tìm YouTube
+                    else:
                         try: search_query = urllib.parse.quote_plus(song_title); final_url = f"https://www.youtube.com/results?search_query={search_query}"
                         except Exception as e: response = f"Lỗi tạo URL YouTube: {e}"; final_url=None
-                    # Gọi hàm mở web thông thường (chạy trực tiếp)
                     if final_url:
-                         response = self._handle_open_website(final_url, browser_key)
-                    # else: response đã được gán lỗi
+                         if hasattr(self, 'web_thread') and self.web_thread and self.web_thread.is_alive(): response = "Bot: Đang bận xử lý yêu cầu web trước đó..."
+                         else: self.display_message("Bot: Đang mở web...", sender="Bot"); self.web_thread = threading.Thread(target=self._handle_open_website_thread, args=(final_url, browser_key), daemon=True); self.web_thread.start(); response = None
 
-        if not executed:
-            # 4. Lệnh Web/Search Chung (Trừ 'tìm nhạc')
+        if not executed: # 5. Web/Search Chung
             web_search_keywords_no_music = tuple(kw for kw in KW_SPACED_WEB_SEARCH if kw != "tìm nhạc ")
             target_web = get_target_from_command(command_lower, web_search_keywords_no_music)
             if target_web is not None:
                 executed = True; browser_key = None; target_to_use = target_web; browser_specified = False
-                for prep in PREPOSITIONS:
+                for prep in BROWSER_PREPOSITIONS: # Dùng PREPOSITIONS cũ cho browser
                      if prep in target_web.lower():
                          parts = target_web.rsplit(prep, 1);
                          if len(parts) == 2: browser_specified=True; target_part, browser_part = parts; potential_browser_key = browser_part.strip().lower(); target_to_use = target_part.strip(); canonical_browser_key = ALIAS_MAP.get(potential_browser_key, potential_browser_key);
                          if canonical_browser_key in APP_MAPPINGS: browser_key = canonical_browser_key;
                          break
-                # Gọi trực tiếp, không cần thread
-                response = self._handle_open_website(target_to_use, browser_key=browser_key)
+                if hasattr(self, 'web_thread') and self.web_thread and self.web_thread.is_alive(): response = "Bot: Đang bận xử lý yêu cầu web trước đó..."
+                else: self.display_message("Bot: Đang xử lý yêu cầu web...", sender="Bot"); self.web_thread = threading.Thread(target=self._handle_open_website_thread, args=(target_to_use, browser_key), daemon=True); self.web_thread.start(); response = None
 
-        if not executed:
-            # 5. Lệnh MỞ CHUNG CHUNG
+        if not executed: # 6. Mở Chung
             target_open = get_target_from_command(command_lower, KW_SPACED_OPEN)
             if target_open is not None:
                 executed = True; browser_key = None; target_to_use = target_open; browser_specified = False
-                for prep in PREPOSITIONS:
+                for prep in BROWSER_PREPOSITIONS: # Dùng PREPOSITIONS cũ cho browser
                      if prep in target_open.lower():
                          browser_specified = True; parts = target_open.rsplit(prep, 1);
                          if len(parts) == 2: target_part, browser_part = parts; potential_browser_key = browser_part.strip().lower(); target_to_use = target_part.strip(); canonical_browser_key = ALIAS_MAP.get(potential_browser_key, potential_browser_key);
@@ -162,21 +257,194 @@ class ChatApp(ctk.CTk):
                          else: print(f"Heuristic: '{target_to_use}' doesn't look like URL/Search -> treat as potential unknown app."); is_web_target = False
                      except ValueError: print(f"Parse Error: '{target_to_use}' is not URL -> treat as potential unknown app."); is_web_target = False
                 if is_web_target:
-                    # Gọi trực tiếp, không cần thread
-                    response = self._handle_open_website(final_target_for_web, browser_key=browser_key)
-                else: # Mở app vẫn chạy trực tiếp
-                    response = self._handle_open_app(target_to_use)
-
+                     if hasattr(self, 'web_thread') and self.web_thread and self.web_thread.is_alive(): response = "Bot: Đang bận xử lý yêu cầu web trước đó..."
+                     else: self.display_message("Bot: Đang xử lý yêu cầu web...", sender="Bot"); self.web_thread = threading.Thread(target=self._handle_open_website_thread, args=(final_target_for_web, browser_key), daemon=True); self.web_thread.start(); response = None
+                else: response = self._handle_open_app(target_to_use)
 
         # Hiển thị phản hồi của Bot
-        if response:
-             self.display_message(f"Bot: {response}", sender="Bot")
+        if response: self.display_message(f"Bot: {response}", sender="Bot")
 
-    # === V5.4: Bỏ hàm thread ===
-    # def _handle_open_website_thread(self, target, browser_key): ...
 
-    # --- Các hàm cũ (_handle_open_website, _handle_open_app, _handle_close_app) ---
-    # (Giữ nguyên các hàm này)
+    # === V6.6: Hàm mới để phân tích vị trí phức tạp ===
+    def _parse_complex_location(self, location_str):
+        """Phân tích chuỗi vị trí phức tạp thành đường dẫn hợp lệ."""
+        loc_lower = location_str.lower().strip()
+        print(f"Parsing complex location: '{loc_lower}'")
+
+        # 1. Ưu tiên khớp trực tiếp trong LOCATION_MAP
+        if loc_lower in LOCATION_MAP:
+            print(f"Direct match found in LOCATION_MAP: '{loc_lower}' -> '{LOCATION_MAP[loc_lower]}'")
+            return LOCATION_MAP[loc_lower]
+
+        # 2. Thử tách cấu trúc "folder [của/trên/tại/ở] location_gốc"
+        base_path = None
+        relative_folder = ""
+
+        # Tìm vị trí gốc đã biết (ổ đĩa hoặc thư mục chuẩn) trong chuỗi
+        found_base_key = None
+        # Duyệt các key map đã biết (ưu tiên key dài hơn)
+        sorted_map_keys = sorted(LOCATION_MAP.keys(), key=len, reverse=True)
+
+        for base_key in sorted_map_keys:
+            # Tìm key trong chuỗi vị trí (có thể ở cuối hoặc giữa)
+            if base_key in loc_lower:
+                 # Kiểm tra xem có phải là một phần của từ khác không (vd: 'documents' trong 'mydocuments')
+                 # Đảm bảo nó đứng riêng lẻ hoặc ở cuối/đầu
+                 start_idx = loc_lower.find(base_key)
+                 end_idx = start_idx + len(base_key)
+                 is_standalone = True
+                 if start_idx > 0 and loc_lower[start_idx-1].isalnum(): # Ký tự trước là chữ/số
+                      is_standalone = False
+                 if end_idx < len(loc_lower) and loc_lower[end_idx].isalnum(): # Ký tự sau là chữ/số
+                      is_standalone = False
+
+                 if is_standalone:
+                     base_path = LOCATION_MAP[base_key]
+                     found_base_key = base_key
+                     print(f"Found base location key: '{base_key}' -> '{base_path}'")
+                     # Lấy phần còn lại làm thư mục con tiềm năng
+                     # Xóa key và các từ nối phổ biến ("của", "trên", "tại", "ở", "thư mục", "folder")
+                     remaining_str = loc_lower.replace(base_key, "").strip()
+                     # Tách các từ nối phổ biến hơn
+                     connectors = ["của", "trên", "tại", "ở", "thư mục", "folder", "trong"]
+                     for conn in connectors:
+                          remaining_str = remaining_str.replace(conn, "").strip()
+                     relative_folder = remaining_str
+                     print(f"Potential relative folder: '{relative_folder}'")
+                     break # Dừng khi tìm thấy vị trí gốc đầu tiên
+
+        # 3. Nếu tìm thấy vị trí gốc và thư mục con
+        if base_path and relative_folder:
+            # Loại bỏ các dấu nháy kép hoặc đơn nếu có
+            relative_folder = relative_folder.strip('"\'')
+            try:
+                # Tạo đường dẫn đầy đủ và kiểm tra
+                full_path = os.path.join(base_path, relative_folder)
+                print(f"Constructed path: '{full_path}'")
+                if os.path.isdir(full_path):
+                     print("Path verified.")
+                     return full_path
+                else:
+                     print("Constructed path does not exist or is not a directory.")
+                     # Thử tìm thư mục con không phân biệt hoa thường (chủ yếu cho Windows)
+                     if os.path.exists(base_path):
+                         for item in os.listdir(base_path):
+                             item_path = os.path.join(base_path, item)
+                             if os.path.isdir(item_path) and item.lower() == relative_folder.lower():
+                                 print(f"Found case-insensitive match: '{item_path}'")
+                                 return item_path
+                         print("Case-insensitive match not found.")
+            except Exception as e:
+                print(f"Error joining or checking path: {e}")
+                return None
+
+        # 4. Nếu chỉ tìm thấy vị trí gốc (không có thư mục con rõ ràng)
+        elif base_path:
+            print("Only base path found and verified.")
+            return base_path # Trả về chính vị trí gốc đó
+
+        # 5. Không phân tích được
+        print("Could not parse complex location.")
+        return None
+
+
+    # === Các hàm còn lại giữ nguyên từ V6.5 ===
+    def _find_file_thread(self, pattern, search_paths, location_name):
+        print(f"Starting find file thread for pattern: '{pattern}'")
+        search_result_data = self._handle_find_file_logic(pattern, search_paths, location_name)
+        self.after(0, self._process_and_display_find_results, search_result_data)
+        print(f"Find file thread finished for pattern: '{pattern}'")
+
+    def _handle_find_file_logic(self, pattern, search_paths=None, location_name=None):
+        print(f"Logic: Searching for pattern/type: '{pattern}'");
+        if search_paths: print(f"Logic: Specified search paths: {search_paths}")
+        else: print("Logic: No specific paths provided, using defaults.")
+        found_files_with_time = []
+        final_search_paths = []
+        search_scope_display = ""
+        if search_paths:
+            final_search_paths = [p for p in search_paths if os.path.isdir(p)]
+            if not final_search_paths: return ([], pattern, f"Lỗi: Vị trí '{location_name or 'được chỉ định'}' không hợp lệ.")
+            search_scope_display = location_name if location_name else ", ".join(final_search_paths)
+        else:
+            home_dir = os.path.expanduser("~"); default_dirs = ["Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos"]
+            final_search_paths = [os.path.join(home_dir, d) for d in default_dirs if os.path.isdir(os.path.join(home_dir, d))]
+            if not final_search_paths: return ([], pattern, "Lỗi: Không tìm thấy thư mục mặc định.")
+            search_scope_display = ", ".join([os.path.basename(p) for p in final_search_paths])
+        print(f"Logic: Final search paths: {final_search_paths}"); print(f"Logic: Search scope display name: {search_scope_display}")
+        pattern_lower = pattern.lower(); target_extensions = None; search_mode = "name"
+        canonical_pattern = ALIAS_MAP.get(pattern_lower, pattern_lower)
+        if canonical_pattern in FILE_TYPE_EXTENSIONS: target_extensions = FILE_TYPE_EXTENSIONS[canonical_pattern]; search_mode = "type"; print(f"Logic: Search mode: type ('{pattern}' -> {canonical_pattern}), extensions: {target_extensions}")
+        elif pattern_lower in FILE_TYPE_EXTENSIONS: target_extensions = FILE_TYPE_EXTENSIONS[pattern_lower]; search_mode = "type"; print(f"Logic: Search mode: type ('{pattern}'), extensions: {target_extensions}")
+        else: print(f"Logic: Search mode: name/pattern ('{pattern}')")
+        try:
+            max_search_count = 200; current_count = 0
+            for search_dir in final_search_paths:
+                print(f"Logic: Walking through: {search_dir}")
+                try:
+                     for root, dirs, files in os.walk(search_dir, topdown=True, onerror=lambda err: print(f"Error walking directory: {err}")):
+                         dirs[:] = [d for d in dirs if not d.startswith('.') and not d.startswith('$') and '$Recycle.Bin' not in root]
+                         files = [f for f in files if not f.startswith('.')]
+                         for filename in files:
+                            match = False; filename_lower = filename.lower()
+                            if search_mode == "type":
+                                if filename_lower.endswith(target_extensions): match = True
+                            else:
+                                use_wildcard = '*' in pattern or '?' in pattern
+                                if use_wildcard:
+                                    if fnmatch.fnmatch(filename_lower, pattern_lower): match = True
+                                else:
+                                    if pattern_lower in filename_lower: match = True
+                            if match:
+                                try: full_path = os.path.join(root, filename); mod_time = os.path.getmtime(full_path); found_files_with_time.append((full_path, mod_time)); current_count += 1;
+                                except OSError as e: print(f"Skipping file due to OS error: {filename} - {e}"); continue
+                            if current_count >= max_search_count: break
+                         if current_count >= max_search_count: break
+                except OSError as walk_error: print(f"Permission or OS error walking {search_dir}: {walk_error}. Skipping."); continue
+                if current_count >= max_search_count: print(f"Reached max search limit ({max_search_count})."); break
+        except Exception as e: print(f"Lỗi không xác định khi tìm file: {e}"); return ([], pattern, f"Lỗi không xác định.")
+        if found_files_with_time: print(f"Logic: Sorting {len(found_files_with_time)} results..."); found_files_with_time.sort(key=lambda item: item[1], reverse=True)
+        return (found_files_with_time, pattern, search_scope_display)
+
+    def _process_and_display_find_results(self, search_result_data):
+        print("Processing find results on main thread...")
+        results_list, pattern, scope_or_error = search_result_data
+        if not isinstance(results_list, list): self.display_message(f"Bot: {scope_or_error}", sender="Bot"); self.show_more_button.grid_remove(); return
+        self.last_search_results = results_list; self.last_search_display_index = 0; scope_display_name = scope_or_error
+        formatted_response, more_available = self._format_search_results(pattern, scope_display_name)
+        self.display_message(f"Bot: {formatted_response}", sender="Bot")
+        if more_available: self.show_more_button.grid(**self.show_more_button_grid_info); self.show_more_button.configure(state="normal")
+        else: self.show_more_button.grid_remove()
+
+    def _handle_show_more_results(self):
+        print("\n--- Debug _handle_show_more_results ---"); print(f"Current index: {self.last_search_display_index}, Total: {len(self.last_search_results)}")
+        if not self.last_search_results: return "Không có kết quả tìm kiếm trước đó.", False
+        start_index = self.last_search_display_index
+        if start_index >= len(self.last_search_results): return "Đã hiển thị tất cả kết quả.", False
+        end_index = start_index + self.display_limit; results_chunk = self.last_search_results[start_index:end_index]; print(f"End index: {end_index}, Chunk size: {len(results_chunk)}")
+        if not results_chunk: return "Không có thêm kết quả nào.", False
+        self.last_search_display_index = end_index
+        result_str = f"--- Kết quả tiếp theo ({start_index + 1}-{min(end_index, len(self.last_search_results))}/{len(self.last_search_results)}) ---\n"
+        for f_path, _ in results_chunk: result_str += f"- {f_path}\n"
+        more_available = self.last_search_display_index < len(self.last_search_results)
+        if more_available: remaining = len(self.last_search_results) - self.last_search_display_index; result_str += f"... (Còn {remaining} file khác. Nhấn 'Xem thêm' hoặc gõ 'thêm')"
+        else: result_str += "--- Đã hết kết quả ---"
+        print(f"Next index: {self.last_search_display_index}, More available: {more_available}"); print("--- End Debug _handle_show_more_results ---\n"); return result_str.strip(), more_available
+
+    def _format_search_results(self, pattern, scope):
+        if not self.last_search_results: return f"Không tìm thấy file nào khớp với '{pattern}' trong {scope}.", False
+        else:
+            total_found = len(self.last_search_results); results_to_show = self.last_search_results[:self.display_limit]; self.last_search_display_index = len(results_to_show)
+            result_str = f"---\nTìm thấy {total_found} file khớp với '{pattern}' trong {scope} (mới nhất trước):\n"
+            for f_path, _ in results_to_show: result_str += f"- {f_path}\n"
+            more_available = total_found > self.display_limit
+            if more_available: remaining = total_found - self.display_limit; result_str += f"... (Còn {remaining} file khác. Nhấn 'Xem thêm' hoặc gõ 'thêm')"
+            return result_str.strip(), more_available
+
+    def _handle_open_website_thread(self, target, browser_key):
+        response = self._handle_open_website(target, browser_key)
+        self.after(0, self.display_message, f"Bot: {response}", "Bot")
+
     def _handle_open_website(self, target, browser_key=None):
         print(f"--- Debug _handle_open_website (Non-Selenium) ---"); print(f"Input Target: '{target}'"); print(f"Input Browser Key: '{browser_key}'"); final_url = ""; is_search = False
         try:
@@ -245,17 +513,18 @@ class ChatApp(ctk.CTk):
 
 
     # --- Các hàm giao diện còn lại (Giữ nguyên) ---
+    # (toggle_theme, display_message, _scroll_to_bottom, send_message_event, recall_*, paste_*)
     def toggle_theme(self): new_mode = "Light" if self._current_theme == "Dark" else "Dark"; ctk.set_appearance_mode(new_mode); self._current_theme = new_mode; self.theme_button.configure(text="💡" if new_mode == "Dark" else "🌙")
     def display_message(self, message, sender):
         if sender == "User": anchor_side = "e"; justify_text = "right"; bubble_color = ctk.ThemeManager.theme["CTkButton"]["fg_color"]; text_color = ctk.ThemeManager.theme["CTkButton"]["text_color"]
-        else: anchor_side = "w"; justify_text = "left"; bubble_color = ctk.ThemeManager.theme["CTkFrame"]["fg_color"]; text_color = ctk.ThemeManager.theme["CTkLabel"]["text_color"]
+        else: anchor_side = "w"; justify_text = "left"; bubble_color = ("#E5E5E5", "#2B2B2B")[1 if ctk.get_appearance_mode() == "Dark" else 0]; text_color = ctk.ThemeManager.theme["CTkLabel"]["text_color"]
         bubble_frame = ctk.CTkFrame(self.chat_display_frame, fg_color=bubble_color, corner_radius=15)
-        try: scrollable_width = self.chat_display_frame.winfo_width() - 30
+        try: scrollable_width = self.chat_display_frame.winfo_width() - 40
         except Exception: scrollable_width = 300
         if scrollable_width < 100: scrollable_width = 300
-        wraplength = scrollable_width * 0.7
-        message_label = ctk.CTkLabel(bubble_frame, text=message, font=("Segoe UI", 14), text_color=text_color, justify=justify_text, wraplength=wraplength); message_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
-        bubble_frame.grid(row=self.chat_display_frame.grid_size()[1], column=0, padx=10, pady=(5, 2), sticky=anchor_side); self.after(50, self._scroll_to_bottom)
+        wraplength = scrollable_width * 0.75
+        message_label = ctk.CTkLabel(bubble_frame, text=message, font=("Segoe UI", 14), text_color=text_color, justify=justify_text, wraplength=wraplength); message_label.grid(row=0, column=0, padx=12, pady=10, sticky="w")
+        bubble_frame.grid(row=self.chat_display_frame.grid_size()[1], column=0, padx=15, pady=(6, 3), sticky=anchor_side); self.after(50, self._scroll_to_bottom)
     def _scroll_to_bottom(self): self.chat_display_frame._parent_canvas.yview_moveto(1.0)
     def send_message_event(self, event=None):
         user_input = self.entry_message.get().strip();
