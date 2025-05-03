@@ -9,6 +9,7 @@ lerna-debug.log*
 
 node_modules
 dist
+build
 dist-ssr
 *.local
 
@@ -29,3 +30,5 @@ pnpm-lock.yaml
 yarn.lock
 package-lock.json
 bun.lockb
+ChatBot AI.spec
+script.txt
