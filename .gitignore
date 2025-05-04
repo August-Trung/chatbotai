@@ -25,6 +25,24 @@ dist-ssr
 *.sln
 *.sw?
 
+# Python specific
+__pycache__/
+*.pyc
+
+# Temporary data and models
+improved_ner_vi/
+phobert_intent/
+phobert_intent_model/
+
+# Image files
+bot.png
+icon.ico
+icon.png
+user.png
+
+# Test and log files
+ner_test_results.json
+chatbot.log
 
 pnpm-lock.yaml
 yarn.lock
