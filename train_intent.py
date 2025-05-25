@@ -3,7 +3,8 @@ from sklearn.model_selection import train_test_split
 import torch
 import evaluate
 import numpy as np
-from train_intent_data import TRAIN_DATA
+# from train_intent_data import TRAIN_DATA
+from generated_intent_data import TRAIN_DATA
 
 # Chuẩn bị dữ liệu
 texts = [item[0] for item in TRAIN_DATA]

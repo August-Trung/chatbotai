@@ -1,7 +1,7 @@
 import spacy
 import json
 
-def test_ner_model(model_path="improved_ner_vi"):
+def test_ner_model(model_path="improved_ner_vi/best_model"):
     """
     Kiểm tra mô hình NER đã huấn luyện với nhiều ví dụ
     """
