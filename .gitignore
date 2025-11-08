@@ -41,6 +41,14 @@ icon.ico
 icon.png
 user.png
 
+V4_voice_full.zip
+V4_final_only.zip
+Chatbot.zip
+analysis_artifacts.zip
+
+analysis_artifacts
+plots
+
 # Test and log files
 ner_test_results.json
 chatbot.log

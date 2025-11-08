@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 from train_ner_data import TRAIN_DATA, VALID_DATA
+from generated_train_data import TRAIN_DATA
 
 def convert_numpy_types(obj):
     """
