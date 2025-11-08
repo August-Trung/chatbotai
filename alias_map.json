@@ -26,5 +26,14 @@
     "vscode",
     "code",
     "visual studio code"
+  ],
+  "chatbot": [
+    "chatbot"
+  ],
+  "postman": [
+    "postman"
+  ],
+  "capcut": [
+    "capcut"
   ]
 }

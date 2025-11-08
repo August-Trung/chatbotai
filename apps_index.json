@@ -1,8 +1,4 @@
 {
-  "zalo": [
-    "start",
-    "zalo"
-  ],
   "chrome": [
     "start",
     "chrome"
@@ -19,5 +15,25 @@
   "vscode": [
     "start",
     "code"
+  ],
+  "note": [
+    "start",
+    "notepad"
+  ],
+  "notepad": [
+    "start",
+    "notepad"
+  ],
+  "chatbot": [
+    "start",
+    "C:/Users/ADMIN/Desktop/ChatBotAI.exe"
+  ],
+  "postman": [
+    "start",
+    "C:/Users/ADMIN/AppData/Local/Postman/Postman.exe"
+  ],
+  "capcut": [
+    "start",
+    "C:/Users/ADMIN/AppData/Local/CapCut/CapCut.exe"
   ]
 }
