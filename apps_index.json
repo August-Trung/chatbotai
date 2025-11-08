@@ -1,0 +1,23 @@
+{
+  "zalo": [
+    "start",
+    "zalo"
+  ],
+  "chrome": [
+    "start",
+    "chrome"
+  ],
+  "edge": [
+    "start",
+    "msedge"
+  ],
+  "facebook": [
+    "start",
+    "chrome",
+    "https://www.facebook.com"
+  ],
+  "vscode": [
+    "start",
+    "code"
+  ]
+}

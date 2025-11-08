@@ -48,6 +48,8 @@ analysis_artifacts.zip
 
 analysis_artifacts
 plots
+old-version
+zip
 
 # Test and log files
 ner_test_results.json
