@@ -18,6 +18,7 @@ from assistant_nlp import NLPProcessor
 from assistant_apps import AppManager
 from assistant_files import FileManager
 from tkinter import messagebox
+from assistant_voice import VoiceEngine, SRWorker, VoiceController
 
 log = setup_logger("core")
 
@@ -49,6 +50,15 @@ class AssistantApp(ctk.CTk):
         )
         self.btn_reload_nlp.pack(side="left", padx=(0, 8), pady=8)
 
+        # Voice listen button (optional)
+        try:
+            self.btn_listen = ctk.CTkButton(
+                bottom, text="🎤 Nghe", command=self.toggle_listen
+            )
+            self.btn_listen.pack(side="left", padx=(0, 8), pady=8)
+        except Exception:
+            self.btn_listen = None
+
         self.status = ctk.CTkLabel(bottom, text="Idle")
         self.status.pack(side="right", padx=6)
 
@@ -56,10 +66,26 @@ class AssistantApp(ctk.CTk):
         self.apps = AppManager()
         self.files = FileManager()
 
+        # Voice components (optional - requires pyttsx3 / SpeechRecognition)
+        try:
+            # high-level controller for TTS (selects Vietnamese voice when possible)
+            self.voice = VoiceController()
+        except Exception:
+            try:
+                self.voice = VoiceEngine()
+            except Exception:
+                self.voice = None
+        self.stt_q = queue.Queue()
+        self.stt_stop = threading.Event()
+        self.stt_worker = None
+
         self.cmd_q = queue.Queue()
         self.after(60, self._poll_queue)
 
         self._sys_msg("Chào bạn! Mình sẵn sàng nhận lệnh.")
+
+        # Poll STT queue if voice available
+        self.after(60, self._poll_stt_queue)
 
     def _append(self, text: str):
         self.chat_display.insert("end", text + "\n")
@@ -70,14 +96,26 @@ class AssistantApp(ctk.CTk):
 
     def _bot_msg(self, text: str):
         self._append(f"Bot: {text}")
+        # Speak bot messages in background (Vietnamese by default)
+        try:
+            if getattr(self, "voice", None):
+                threading.Thread(target=self._speak, args=(text,), daemon=True).start()
+        except Exception:
+            pass
+
+    def _speak(self, text: str):
+        try:
+            # VoiceController.say accepts Vietnamese by default
+            self.voice.say(text, lang="vi")
+        except Exception as e:
+            log.info("TTS failed: %s", e)
 
     def _sys_msg(self, text: str):
         self._append(f"[Hệ thống] {text}")
 
     def get_weather(self, location: str) -> str:
-    # Stub an toàn: sau này tích hợp API thật (OpenWeather,...)
+        # Stub an toàn: sau này tích hợp API thật (OpenWeather,...)
         return "chưa tích hợp API thời tiết (demo)"
-
 
     def on_send(self, event=None):
         txt = self.entry.get().strip()
@@ -297,6 +335,69 @@ class AssistantApp(ctk.CTk):
         except queue.Empty:
             pass
         self.after(60, self._poll_queue)
+
+    # --------------------
+    # Voice / STT helpers
+    # --------------------
+    def toggle_listen(self):
+        # start/stop background STT worker
+        if self.stt_worker and self.stt_worker.is_alive():
+            self.stt_stop.set()
+            try:
+                self.btn_listen.configure(text="🎤 Nghe", state="disabled")
+            except Exception:
+                pass
+        else:
+            if not hasattr(self, "stt_q") or self.stt_q is None:
+                self._bot_msg("Thiếu bộ đệm STT.")
+                return
+            self.stt_stop.clear()
+            try:
+                self.stt_worker = SRWorker(
+                    self.stt_q,
+                    self.stt_stop,
+                    language=os.getenv("STT_LANGUAGE", "vi-VN"),
+                )
+                self.stt_worker.start()
+                self._bot_msg("Đang lắng nghe...")
+                try:
+                    self.btn_listen.configure(text="⏹ Dừng")
+                except Exception:
+                    pass
+            except Exception as e:
+                self._bot_msg(f"Không thể khởi tạo STT: {e}")
+
+    def _poll_stt_queue(self):
+        try:
+            while True:
+                topic, payload = self.stt_q.get_nowait()
+                if topic == "transcript":
+                    text = payload or ""
+                    if text.strip():
+                        self._user_msg(text)
+                        threading.Thread(
+                            target=self.process_command, args=(text,), daemon=True
+                        ).start()
+                    else:
+                        self._bot_msg("(không nghe rõ)")
+                elif topic == "error":
+                    self._bot_msg(payload)
+        except queue.Empty:
+            pass
+        # update listen button state
+        try:
+            if (
+                hasattr(self, "stt_worker")
+                and self.stt_worker
+                and not self.stt_worker.is_alive()
+            ):
+                try:
+                    self.btn_listen.configure(text="🎤 Nghe", state="normal")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        self.after(80, self._poll_stt_queue)
 
 
 if __name__ == "__main__":

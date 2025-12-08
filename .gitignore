@@ -34,6 +34,8 @@ __pycache__/
 improved_ner_vi/
 phobert_intent/
 phobert_intent_model/
+phobert_ner_model/
+plots/
 
 # Image files
 bot.png
@@ -47,10 +49,13 @@ Chatbot.zip
 analysis_artifacts.zip
 
 analysis_artifacts
-plots
 old-version
 old-train
 zip
+dataset
+.vscode
+Storage
+
 
 # Test and log files
 ner_test_results.json
